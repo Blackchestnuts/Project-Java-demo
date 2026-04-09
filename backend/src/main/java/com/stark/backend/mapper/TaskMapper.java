@@ -8,8 +8,14 @@ import java.util.List;
 @Mapper
 public interface TaskMapper {
 
-    // 查询所有任务
-    @Select("SELECT * FROM t_task")
+    // // 查询所有任务
+    // @Select("SELECT * FROM t_task")
+    // List<Task> findAll();
+
+    // 替换原有的 findAll 方法
+    @Select("SELECT t.*, e.name as assignee_name " +
+            "FROM t_task t " +
+            "LEFT JOIN t_employee e ON t.assignee_id = e.id")
     List<Task> findAll();
 
     // 根据ID查询任务
