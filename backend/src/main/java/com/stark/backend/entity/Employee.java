@@ -1,4 +1,5 @@
 package com.stark.backend.entity;
+
 import lombok.Data;
 import java.util.Date;
 
@@ -9,4 +10,7 @@ public class Employee {
     private String name;
     private String department;
     private Date createTime;
+    
+    // 【新增】密码字段
+    private String password;
 }
