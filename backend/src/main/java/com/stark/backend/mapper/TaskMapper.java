@@ -25,4 +25,13 @@ public interface TaskMapper {
     // 更新任务状态
     @Update("UPDATE t_task SET status = #{status}, update_time = NOW() WHERE id = #{id}")
     void updateStatus(Task task);
+    // 在 TaskMapper.java 中新增以下方法
+
+    // 编辑任务详情
+    @Update("UPDATE t_task SET title=#{title}, description=#{description}, priority=#{priority}, update_time=NOW() WHERE id=#{id}")
+    void update(Task task);
+
+    // 删除任务
+    @Delete("DELETE FROM t_task WHERE id=#{id}")
+    void deleteById(Long id);
 }

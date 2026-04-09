@@ -35,4 +35,21 @@ public class TaskController {
         taskService.updateTaskStatus(id, status);
         return "状态更新成功";
     }
+    // 在 TaskController.java 中新增以下接口
+
+    // 编辑任务接口
+    // 访问地址：PUT http://localhost:8080/api/tasks
+    @PutMapping
+    public String update(@RequestBody Task task) {
+        taskService.updateTask(task);
+        return "修改成功";
+    }
+
+    // 删除任务接口
+    // 访问地址：DELETE http://localhost:8080/api/tasks/{id}
+    @DeleteMapping("/{id}")
+    public String delete(@PathVariable Long id) {
+        taskService.deleteTask(id);
+        return "删除成功";
+    }
 }

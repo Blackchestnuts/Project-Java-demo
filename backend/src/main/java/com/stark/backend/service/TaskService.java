@@ -30,4 +30,15 @@ public class TaskService {
         task.setStatus(status);
         taskMapper.updateStatus(task);
     }
+    // 在 TaskService.java 中新增以下方法
+
+   // 编辑任务
+    public void updateTask(Task task) {
+        taskMapper.update(task);
+}
+
+    // 删除任务
+    public void deleteTask(Long id) {
+        taskMapper.deleteById(id);
+}
 }
