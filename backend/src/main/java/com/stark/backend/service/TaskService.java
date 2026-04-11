@@ -13,11 +13,14 @@ public class TaskService {
     private TaskMapper taskMapper;
 
     // 搜索/查询列表
-    public List<Task> searchTasks(String keyword) {
+        // 修改 searchTasks，增加 assigneeId 参数并传递给 Mapper
+    public List<Task> searchTasks(String keyword, Long assigneeId) {
         if (keyword == null || keyword.trim().isEmpty()) {
-            return taskMapper.findAll();
+            // 注意：这里也要改，我们需要一个新的 findAll 方法，或者直接调用 search("", assigneeId)
+            // 为了简洁，我们直接调用 search
+            return taskMapper.search("", assigneeId);
         }
-        return taskMapper.search(keyword);
+        return taskMapper.search(keyword, assigneeId);
     }
 
     // 新增

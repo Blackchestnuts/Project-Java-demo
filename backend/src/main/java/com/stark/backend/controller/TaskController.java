@@ -14,9 +14,11 @@ public class TaskController {
     private TaskService taskService;
 
     // 1. 查询列表（支持搜索）
+// 修改 list 接口，接收前端传来的 assigneeId
     @GetMapping
-    public List<Task> list(@RequestParam(required = false) String keyword) {
-        return taskService.searchTasks(keyword);
+    public List<Task> list(@RequestParam(required = false) String keyword, 
+                           @RequestParam(required = false) Long assigneeId) {
+        return taskService.searchTasks(keyword, assigneeId);
     }
 
     // 2. 新增任务
