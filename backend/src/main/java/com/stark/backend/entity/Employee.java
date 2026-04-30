@@ -12,5 +12,6 @@ public class Employee {
     private Date createTime;
     
     // 【新增】密码字段
+    @com.fasterxml.jackson.annotation.JsonIgnore
     private String password;
 }

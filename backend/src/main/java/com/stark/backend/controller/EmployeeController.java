@@ -1,5 +1,7 @@
 package com.stark.backend.controller;
 
+import com.stark.backend.common.Result;
+import com.stark.backend.config.JwtUtil;
 import com.stark.backend.entity.Employee;
 import com.stark.backend.service.EmployeeService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,6 +15,9 @@ public class EmployeeController {
 
     @Autowired
     private EmployeeService employeeService;
+
+    @Autowired
+    private JwtUtil jwtUtil;
 
     /**
      * 查询所有员工
@@ -67,7 +72,7 @@ public class EmployeeController {
      * 员工登录
      */
     @PostMapping("/login")
-    public Employee login(@RequestBody Map<String, String> loginForm) {
+    public Result<Map<String, Object>> login(@RequestBody Map<String, String> loginForm) {
         String username = loginForm.get("username");
         String password = loginForm.get("password");
 
@@ -77,11 +82,13 @@ public class EmployeeController {
             throw new RuntimeException("用户不存在");
         }
 
-        if (!user.getPassword().equals(password)) {
-            throw new RuntimeException("密码错误");
-        }
+        // Use service for password validation (supports BCrypt + plaintext fallback)
+        employeeService.validatePassword(user, password);
 
-        return user;
+        // Generate JWT token
+        String token = jwtUtil.generateToken(user.getId(), user.getUsername(), user.getName());
+
+        return Result.success("登录成功", Map.of("token", token, "user", user));
     }
 
     /**

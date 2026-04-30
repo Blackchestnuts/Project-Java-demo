@@ -3,6 +3,7 @@ package com.stark.backend.service;
 import com.stark.backend.entity.Employee;
 import com.stark.backend.mapper.EmployeeMapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -12,6 +13,8 @@ public class EmployeeService {
 
     @Autowired
     private EmployeeMapper employeeMapper;
+
+    private static final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     /**
      * 查询所有员工
@@ -42,6 +45,8 @@ public class EmployeeService {
         if (employee.getPassword() == null || employee.getPassword().trim().isEmpty()) {
             employee.setPassword("123456");
         }
+        // Encode password with BCrypt
+        employee.setPassword(passwordEncoder.encode(employee.getPassword()));
         employeeMapper.insert(employee);
     }
 
@@ -60,6 +65,27 @@ public class EmployeeService {
     }
 
     /**
+     * 验证密码（支持BCrypt和明文密码）
+     */
+    public void validatePassword(Employee user, String rawPassword) {
+        // Support both BCrypt and plaintext passwords for backward compatibility
+        boolean passwordMatches;
+        if (user.getPassword().startsWith("$2a$") || user.getPassword().startsWith("$2b$")) {
+            passwordMatches = passwordEncoder.matches(rawPassword, user.getPassword());
+        } else {
+            // Legacy plaintext comparison
+            passwordMatches = user.getPassword().equals(rawPassword);
+            // Upgrade to BCrypt on successful login
+            if (passwordMatches) {
+                employeeMapper.updatePassword(user.getId(), passwordEncoder.encode(rawPassword));
+            }
+        }
+        if (!passwordMatches) {
+            throw new RuntimeException("密码错误");
+        }
+    }
+
+    /**
      * 修改密码
      */
     public void updatePassword(Long id, String oldPassword, String newPassword) {
@@ -67,12 +93,12 @@ public class EmployeeService {
         if (employee == null) {
             throw new RuntimeException("员工不存在");
         }
-        if (!employee.getPassword().equals(oldPassword)) {
-            throw new RuntimeException("原密码错误");
-        }
+        // Validate old password using the same BCrypt/plaintext logic
+        validatePassword(employee, oldPassword);
         if (newPassword == null || newPassword.trim().isEmpty()) {
             throw new RuntimeException("新密码不能为空");
         }
-        employeeMapper.updatePassword(id, newPassword);
+        // Encode new password with BCrypt
+        employeeMapper.updatePassword(id, passwordEncoder.encode(newPassword));
     }
 }

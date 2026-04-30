@@ -149,6 +149,10 @@
         .act-btn{width:32px;height:32px;border:1px solid var(--border);border-radius:6px;background:var(--card);cursor:pointer;color:var(--muted);display:flex;align-items:center;justify-content:center;font-size:12px;transition:all var(--tr)}
         .act-btn:hover{background:var(--bg-warm);color:var(--fg);border-color:var(--accent-l)}
         .act-btn.del:hover{background:var(--rose-bg);color:var(--rose);border-color:var(--rose-l)}
+        .act-btn.start:hover{background:var(--blue-bg);color:var(--blue);border-color:var(--blue-l)}
+        .act-btn.pause:hover{background:var(--amber-bg);color:var(--amber);border-color:var(--amber-l)}
+        .act-btn.done:hover{background:var(--accent-bg);color:var(--accent);border-color:var(--accent-l)}
+        .act-btn.reopen:hover{background:var(--bg-warm);color:var(--fg-s);border-color:var(--border)}
 
         /* 看板 */
         .kb-board{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;min-height:500px}
@@ -384,6 +388,15 @@
 
     let tasks = [], members = [], curUser = null, curFilter = 'all', editId = null, calDate = new Date();
 
+    // ====== 数据规范化：确保status/priority始终为数字类型 ======
+    function normalizeTask(t) {
+        if (!t) return t;
+        t.status = t.status != null ? Number(t.status) : 0;
+        t.priority = t.priority != null ? Number(t.priority) : 2;
+        t.assigneeId = t.assigneeId != null ? Number(t.assigneeId) : null;
+        return t;
+    }
+
     // ====== API ======
     async function api(url, opts = {}) {
         try {
@@ -441,7 +454,7 @@
         if (keyword) params.set('keyword', keyword);
         const qs = params.toString();
         const raw = await api('/api/tasks' + (qs ? '?' + qs : ''));
-        tasks = Array.isArray(raw) ? raw : [];
+        tasks = (Array.isArray(raw) ? raw : []).map(normalizeTask);
     }
     async function loadMembers() {
         const raw = await api('/api/employees');
@@ -532,7 +545,13 @@
         const rt = tasks.filter(t=>t.status!==2).slice(0,5);
         re.innerHTML = rt.length ? rt.map(t => {
             const m = getMember(t.assigneeId);
-            return `<div class="tk-item"><div class="tk-chk ${t.status===2?'on':''}" onclick="toggleDone(${t.id},event)"></div><div class="tk-info"><div class="tk-name">${t.title||'未命名'}</div><div class="tk-meta"><span><i class="fas fa-user"></i> ${m.name}</span><span><i class="fas fa-clock"></i> ${fmtDate(t.dueDate)}${isOverdue(t.dueDate)?' <span style="color:var(--rose)">已逾期</span>':''}</span></div></div><span class="tk-pri ${PR_CSS[t.priority]||'medium'}">${PR[t.priority]||'中'}</span></div>`;
+            let dashActions = '';
+        const ds = Number(t.status);
+        if(ds===0) dashActions = `<span style="font-size:11px;color:var(--blue);cursor:pointer;font-weight:500" onclick="changeStatus(${t.id},1)"><i class="fas fa-play"></i> 开始</span>`;
+        else if(ds===1) dashActions = `<span style="font-size:11px;color:var(--accent);cursor:pointer;font-weight:500" onclick="changeStatus(${t.id},2)"><i class="fas fa-check"></i> 完成</span>`;
+        else if(ds===3) dashActions = `<span style="font-size:11px;color:var(--blue);cursor:pointer;font-weight:500" onclick="changeStatus(${t.id},1)"><i class="fas fa-play"></i> 继续</span>`;
+        else if(ds===2) dashActions = `<span style="font-size:11px;color:var(--muted);cursor:pointer;font-weight:500" onclick="changeStatus(${t.id},0)"><i class="fas fa-undo"></i> 重开</span>`;
+        return `<div class="tk-item"><div class="tk-chk ${t.status===2?'on':''}" onclick="toggleDone(${t.id},event)"></div><div class="tk-info"><div class="tk-name">${t.title||'未命名'}</div><div class="tk-meta"><span><i class="fas fa-user"></i> ${m.name}</span><span><i class="fas fa-clock"></i> ${fmtDate(t.dueDate)}${isOverdue(t.dueDate)?' <span style="color:var(--rose)">已逾期</span>':''}</span></div></div>${dashActions}<span class="tk-pri ${PR_CSS[t.priority]||'medium'}">${PR[t.priority]||'中'}</span></div>`;
         }).join('') : '<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px;">暂无待处理任务</div>';
 
         // 团队
@@ -593,12 +612,13 @@
     }
     function renderTable() {
         const tb = document.getElementById('ttBody');
-        let list = curFilter==='all' ? tasks : tasks.filter(t => t.status === parseInt(curFilter));
+        let list = curFilter==='all' ? tasks : tasks.filter(t => Number(t.status) === parseInt(curFilter));
         if(!list.length) { tb.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--muted)">暂无任务数据</td></tr>'; return; }
         tb.innerHTML = list.map(t => {
             const m = getMember(t.assigneeId);
-            const od = t.status!==2 && isOverdue(t.dueDate);
-            return `<tr><td style="font-weight:500">${t.title||'未命名'}</td><td style="font-size:13px;color:var(--muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.description||'-'}</td><td><span class="tk-pri ${PR_CSS[t.priority]||'medium'}">${PR[t.priority]||'中'}</span></td><td><span style="font-size:13px;${od?'color:var(--rose);font-weight:500':'color:var(--fg-s)'}">${fmtDate(t.dueDate)}</span>${od?'<div style="font-size:11px;color:var(--rose)">已逾期</div>':''}</td><td><div class="tt-assignee"><div class="tt-av" style="background:${m.color||COLORS[0]}">${ini(m.name)}</div><span style="font-size:13px">${m.name}</span></div></td><td><span class="st-badge" style="${ST_CSS[t.status]||''}">${ST[t.status]||'未知'}</span></td><td><div class="act-cell"><button class="act-btn" title="编辑" onclick="editTask(${t.id})"><i class="fas fa-pen"></i></button><button class="act-btn del" title="删除" onclick="delTask(${t.id})"><i class="fas fa-trash"></i></button></div></td></tr>`;
+            const s = Number(t.status);
+            const od = s!==2 && isOverdue(t.dueDate);
+            return `<tr><td style="font-weight:500">${t.title||'未命名'}</td><td style="font-size:13px;color:var(--muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.description||'-'}</td><td><span class="tk-pri ${PR_CSS[t.priority]||'medium'}">${PR[t.priority]||'中'}</span></td><td><span style="font-size:13px;${od?'color:var(--rose);font-weight:500':'color:var(--fg-s)'}">${fmtDate(t.dueDate)}</span>${od?'<div style="font-size:11px;color:var(--rose)">已逾期</div>':''}</td><td><div class="tt-assignee"><div class="tt-av" style="background:${m.color||COLORS[0]}">${ini(m.name)}</div><span style="font-size:13px">${m.name}</span></div></td><td><span class="st-badge" style="${ST_CSS[s]||''}">${ST[s]||'未知'}</span></td><td><div class="act-cell">${statusActions(t)}</div></td></tr>`;
         }).join('');
     }
 
@@ -607,8 +627,8 @@
         const c = document.getElementById(cid); if(!c) return;
         const cols = [{k:0,l:'待办',c:'var(--fg-s)'},{k:1,l:'进行中',c:'var(--blue)'},{k:3,l:'已暂停',c:'var(--amber)'},{k:2,l:'已完成',c:'var(--accent)'}];
         c.innerHTML = cols.map(col => {
-            const ct = tasks.filter(t => t.status === col.k);
-            return `<div class="kb-col" data-status="${col.k}" ondragover="event.preventDefault();this.style.background='var(--accent-bg)'" ondragleave="this.style.background=''" ondrop="dropTK(event,${col.k});this.style.background=''"><div class="kb-col-hd"><div class="kb-col-title"><span class="kb-col-dot" style="background:${col.c}"></span>${col.l}</div><span class="kb-col-cnt">${ct.length}</span></div><div class="kb-cards">${ct.map(t => { const m = getMember(t.assigneeId); return `<div class="kb-card" draggable="true" data-id="${t.id}" ondragstart="event.dataTransfer.setData('text/plain','${t.id}')"><div class="kb-card-t">${t.title||'未命名'}</div><div class="kb-card-ft"><div class="kb-card-assignee"><div class="kb-card-av" style="background:${m.color||COLORS[0]}">${ini(m.name)}</div><span>${m.name}</span></div><span>${fmtDate(t.dueDate)}</span></div></div>`; }).join('')}</div><button class="kb-add" onclick="openModal(null,${col.k})"><i class="fas fa-plus"></i> 添加任务</button></div>`;
+            const ct = tasks.filter(t => Number(t.status) === col.k);
+            return `<div class="kb-col" data-status="${col.k}" ondragover="event.preventDefault();this.style.background='var(--accent-bg)'" ondragleave="this.style.background=''" ondrop="dropTK(event,${col.k});this.style.background=''"><div class="kb-col-hd"><div class="kb-col-title"><span class="kb-col-dot" style="background:${col.c}"></span>${col.l}</div><span class="kb-col-cnt">${ct.length}</span></div><div class="kb-cards">${ct.map(t => { const m = getMember(t.assigneeId); const ks = Number(t.status); let kbActions = ''; if(ks===0) kbActions = `<span style="cursor:pointer;color:var(--blue)" onclick="changeStatus(${t.id},1)" title="开始"><i class="fas fa-play"></i></span>`; else if(ks===1) kbActions = `<span style="cursor:pointer;color:var(--accent)" onclick="changeStatus(${t.id},2)" title="完成"><i class="fas fa-check"></i></span> <span style="cursor:pointer;color:var(--amber)" onclick="changeStatus(${t.id},3)" title="暂停"><i class="fas fa-pause"></i></span>`; else if(ks===3) kbActions = `<span style="cursor:pointer;color:var(--blue)" onclick="changeStatus(${t.id},1)" title="继续"><i class="fas fa-play"></i></span>`; else if(ks===2) kbActions = `<span style="cursor:pointer;color:var(--muted)" onclick="changeStatus(${t.id},0)" title="重开"><i class="fas fa-undo"></i></span>`; return `<div class="kb-card" draggable="true" data-id="${t.id}" ondragstart="event.dataTransfer.setData('text/plain','${t.id}')"><div class="kb-card-t">${t.title||'未命名'}</div><div class="kb-card-ft"><div class="kb-card-assignee"><div class="kb-card-av" style="background:${m.color||COLORS[0]}">${ini(m.name)}</div><span>${m.name}</span></div><div style="display:flex;align-items:center;gap:8px"><span style="font-size:12px">${fmtDate(t.dueDate)}</span>${kbActions}</div></div></div>`; }).join('')}</div><button class="kb-add" onclick="openModal(null,${col.k})"><i class="fas fa-plus"></i> 添加任务</button></div>`;
         }).join('');
     }
     async function dropTK(e, ns) {
@@ -731,6 +751,42 @@
         const ns = t.status===2 ? 0 : 2;
         const ok = await api(`/api/tasks/${id}/status?status=${ns}`, {method:'PUT'});
         if(ok !== null) { toast(ns===2?'任务已完成':'任务已恢复','success'); await loadTasks(); renderAll(); }
+    }
+
+    // 根据任务当前状态生成操作按钮
+    function statusActions(t) {
+        let btns = '';
+        const s = t.status != null ? Number(t.status) : 0;
+        // 编辑按钮 - 所有状态都有
+        btns += `<button class="act-btn" title="编辑" onclick="editTask(${t.id})"><i class="fas fa-pen"></i></button>`;
+        // 状态流转按钮（完整的状态机）
+        if (s === 0) {
+            // 待办 -> 开始(进行中)
+            btns += `<button class="act-btn start" title="开始任务" onclick="changeStatus(${t.id},1)"><i class="fas fa-play"></i></button>`;
+        } else if (s === 1) {
+            // 进行中 -> 暂停
+            btns += `<button class="act-btn pause" title="暂停" onclick="changeStatus(${t.id},3)"><i class="fas fa-pause"></i></button>`;
+            // 进行中 -> 完成
+            btns += `<button class="act-btn done" title="完成任务" onclick="changeStatus(${t.id},2)"><i class="fas fa-check"></i></button>`;
+        } else if (s === 3) {
+            // 已暂停 -> 继续(进行中)
+            btns += `<button class="act-btn start" title="继续任务" onclick="changeStatus(${t.id},1)"><i class="fas fa-play"></i></button>`;
+        } else if (s === 2) {
+            // 已完成 -> 重新打开(待办)
+            btns += `<button class="act-btn reopen" title="重新打开" onclick="changeStatus(${t.id},0)"><i class="fas fa-undo"></i></button>`;
+        } else {
+            // 未知状态 -> 重置为待办
+            btns += `<button class="act-btn start" title="开始任务" onclick="changeStatus(${t.id},1)"><i class="fas fa-play"></i></button>`;
+        }
+        // 删除按钮 - 所有状态都有
+        btns += `<button class="act-btn del" title="删除" onclick="delTask(${t.id})"><i class="fas fa-trash"></i></button>`;
+        return btns;
+    }
+
+    async function changeStatus(id, newStatus) {
+        const ok = await api(`/api/tasks/${id}/status?status=${newStatus}`, {method:'PUT'});
+        if(ok !== null) { toast(`任务已更新为「${ST[newStatus]}」`,'success'); await loadTasks(); renderAll(); }
+        else toast('状态更新失败','error');
     }
 
     function renderAll(){ renderDash(); renderTable(); renderKB('kbMain'); renderCal(); renderTeam(); }
