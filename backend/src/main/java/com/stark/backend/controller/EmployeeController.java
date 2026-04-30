@@ -1,44 +1,99 @@
 package com.stark.backend.controller;
 
 import com.stark.backend.entity.Employee;
-import com.stark.backend.mapper.EmployeeMapper;
+import com.stark.backend.service.EmployeeService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
-import java.util.Map; // 必须引入 Map
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/employees")
 public class EmployeeController {
 
     @Autowired
-    private EmployeeMapper employeeMapper;
+    private EmployeeService employeeService;
 
+    /**
+     * 查询所有员工
+     */
     @GetMapping
     public List<Employee> list() {
-        return employeeMapper.findAll();
+        return employeeService.findAll();
     }
 
-    // 修正后的登录方法
+    /**
+     * 根据ID查询单个员工
+     */
+    @GetMapping("/{id}")
+    public Employee getById(@PathVariable Long id) {
+        return employeeService.findById(id);
+    }
+
+    /**
+     * 新增员工
+     */
+    @PostMapping
+    public String add(@RequestBody Employee employee) {
+        // 校验用户名是否重复
+        Employee existing = employeeService.findByUsername(employee.getUsername());
+        if (existing != null) {
+            throw new RuntimeException("用户名已存在");
+        }
+        employeeService.addEmployee(employee);
+        return "新增成功";
+    }
+
+    /**
+     * 更新员工信息
+     */
+    @PutMapping("/{id}")
+    public String update(@PathVariable Long id, @RequestBody Employee employee) {
+        employee.setId(id);
+        employeeService.updateEmployee(employee);
+        return "修改成功";
+    }
+
+    /**
+     * 删除员工
+     */
+    @DeleteMapping("/{id}")
+    public String delete(@PathVariable Long id) {
+        employeeService.deleteEmployee(id);
+        return "删除成功";
+    }
+
+    /**
+     * 员工登录
+     */
     @PostMapping("/login")
     public Employee login(@RequestBody Map<String, String> loginForm) {
-        // 1. 从 Map 中获取前端传来的数据
         String username = loginForm.get("username");
-        String password = loginForm.get("password"); // 注意：这里定义了 password
+        String password = loginForm.get("password");
 
-        // 2. 查找用户
-        List<Employee> users = employeeMapper.findAll();
-        Employee user = users.stream()
-                .filter(u -> u.getUsername().equals(username))
-                .findFirst()
-                .orElseThrow(() -> new RuntimeException("用户不存在"));
-        
-        // 3. 校验密码
-        // 这里必须使用上面定义的 password 变量，而不是不存在的 inputPassword
+        // 先通过用户名精确查找，避免全表扫描
+        Employee user = employeeService.findByUsername(username);
+        if (user == null) {
+            throw new RuntimeException("用户不存在");
+        }
+
         if (!user.getPassword().equals(password)) {
             throw new RuntimeException("密码错误");
         }
-        
+
         return user;
+    }
+
+    /**
+     * 修改密码
+     * PUT /api/employees/{id}/password
+     * 请求体: { "oldPassword": "xxx", "newPassword": "xxx" }
+     */
+    @PutMapping("/{id}/password")
+    public String updatePassword(@PathVariable Long id, @RequestBody Map<String, String> passwordForm) {
+        String oldPassword = passwordForm.get("oldPassword");
+        String newPassword = passwordForm.get("newPassword");
+        employeeService.updatePassword(id, oldPassword, newPassword);
+        return "密码修改成功";
     }
 }

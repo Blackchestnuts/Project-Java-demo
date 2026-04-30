@@ -326,7 +326,7 @@
                     <button class="filter-chip" data-f="0" onclick="filt(0,this)">待办</button>
                     <button class="filter-chip" data-f="1" onclick="filt(1,this)">进行中</button>
                     <button class="filter-chip" data-f="2" onclick="filt(2,this)">已完成</button>
-                    <button class="filter-chip" data-f="3" onclick="filt(3,this)">已逾期</button>
+                    <button class="filter-chip" data-f="3" onclick="filt(3,this)">已暂停</button>
                     <button class="btn-new" onclick="openModal()"><i class="fas fa-plus"></i> 新建任务</button>
                 </div>
                 <div class="tt-wrap"><table class="tt"><thead><tr><th style="width:30%">任务名称</th><th>描述</th><th>优先级</th><th>截止日期</th><th>负责人</th><th>状态</th><th style="width:100px">操作</th></tr></thead><tbody id="ttBody"></tbody></table></div>
@@ -358,7 +358,11 @@
                 <div class="fg"><label class="fl">任务描述</label><textarea class="fta" id="mDesc" placeholder="输入任务描述..."></textarea></div>
                 <div class="fr">
                     <div class="fg"><label class="fl">优先级</label><select class="fs" id="mPri"><option value="1">低</option><option value="2" selected>中</option><option value="3">高</option></select></div>
+                    <div class="fg"><label class="fl">负责人</label><select class="fs" id="mAssignee"><option value="">请选择负责人</option></select></div>
+                </div>
+                <div class="fr">
                     <div class="fg"><label class="fl">截止日期</label><input type="datetime-local" class="fi" id="mDue"></div>
+                    <div class="fg"></div>
                 </div>
                 <div class="f-acts"><button class="fbtn sec" onclick="closeM()">取消</button><button class="fbtn pri" onclick="saveTask()">保存任务</button></div>
             </div>
@@ -369,10 +373,11 @@
 
     <script>
     // ====== 常量：和你后端完全对齐 ======
-    // status: 0=待办, 1=进行中, 2=完成, 3=已逾期
+    // status: 0=待办, 1=进行中, 2=完成, 3=已暂停
     // priority: 1=低, 2=中, 3=高
-    const ST = {0:'待办',1:'进行中',2:'完成',3:'已逾期'};
-    const ST_CSS = {0:'background:var(--bg-warm);color:var(--fg-s)',1:'background:var(--blue-bg);color:var(--blue)',2:'background:var(--accent-bg);color:var(--accent)',3:'background:var(--rose-bg);color:var(--rose)'};
+    // 注意：逾期不再作为status存储值，而是通过isOverdue()根据dueDate动态计算
+    const ST = {0:'待办',1:'进行中',2:'完成',3:'已暂停'};
+    const ST_CSS = {0:'background:var(--bg-warm);color:var(--fg-s)',1:'background:var(--blue-bg);color:var(--blue)',2:'background:var(--accent-bg);color:var(--accent)',3:'background:var(--amber-bg);color:var(--amber)'};
     const PR = {1:'低',2:'中',3:'高'};
     const PR_CSS = {1:'low',2:'medium',3:'high'};
     const COLORS = ['linear-gradient(135deg,#7C9A82,#A8C4AD)','linear-gradient(135deg,#D4A574,#F0DCC6)','linear-gradient(135deg,#C48B8B,#E8C4C4)','linear-gradient(135deg,#8BA7C4,#BFD0E4)','linear-gradient(135deg,#9B8EC4,#C4BFE4)','linear-gradient(135deg,#C4B08B,#E4D8BF)','linear-gradient(135deg,#8BC4B0,#BFE4D8)','linear-gradient(135deg,#C48B9B,#E4BFC8)'];
@@ -386,10 +391,22 @@
             if (!r.ok) throw new Error(r.status);
             const t = await r.text();
             if (!t) return null;
-            // 后端直接返回 List 或 String，不是 JSON 对象
-            try { const j = JSON.parse(t); return j; } catch { return t; }
+            // 后端可能返回统一格式 {code, message, data} 或直接返回 List/String
+            try {
+                const j = JSON.parse(t);
+                // 如果是统一响应格式，检查code
+                if (j && typeof j === 'object' && 'code' in j) {
+                    if (j.code === 200) return j.data;
+                    else throw new Error(j.message || '操作失败');
+                }
+                return j;
+            } catch(e) {
+                if (e.message && e.message !== 'Unexpected token') throw e;
+                return t;
+            }
         } catch(e) {
             console.warn('API:', url, e.message);
+            toast(e.message || '请求失败', 'error');
             return null;
         }
     }
@@ -418,9 +435,12 @@
     document.getElementById('lgUser').addEventListener('keydown', e => { if(e.key==='Enter') document.getElementById('lgPass').focus(); });
 
     // ====== 数据加载 ======
-    async function loadTasks() {
-        const params = curUser ? `?assigneeId=${curUser.id}` : '';
-        const raw = await api('/api/tasks' + params);
+    async function loadTasks(keyword) {
+        const params = new URLSearchParams();
+        if (curUser) params.set('assigneeId', curUser.id);
+        if (keyword) params.set('keyword', keyword);
+        const qs = params.toString();
+        const raw = await api('/api/tasks' + (qs ? '?' + qs : ''));
         tasks = Array.isArray(raw) ? raw : [];
     }
     async function loadMembers() {
@@ -473,19 +493,37 @@
     document.querySelectorAll('.nav-item[data-page]').forEach(i => i.addEventListener('click', () => go(i.dataset.page)));
 
     // ====== 仪表盘 ======
-    function renderDash() {
+    async function renderDash() {
         const h = new Date().getHours();
         let g = '早上好'; if(h>=12&&h<14)g='中午好'; else if(h>=14&&h<18)g='下午好'; else if(h>=18)g='晚上好';
         document.getElementById('greetText').textContent = `${g}，${curUser?.name||'用户'}`;
-        const pending = tasks.filter(t=>t.status!==2).length;
-        const prog = tasks.filter(t=>t.status===1).length;
-        const overdue = tasks.filter(t=>t.status!==2&&isOverdue(t.dueDate)).length;
-        const done = tasks.filter(t=>t.status===2).length;
-        document.getElementById('sTotal').textContent = tasks.length;
+
+        // 尝试从后端获取统计数据
+        const statsParams = curUser ? `?assigneeId=${curUser.id}` : '';
+        const stats = await api('/api/tasks/statistics' + statsParams);
+        let total=0, prog=0, overdue=0, done=0, paused=0;
+        if (stats && typeof stats === 'object') {
+            total = stats.total || 0;
+            prog = stats.inProgress || 0;
+            overdue = stats.overdue || 0;
+            done = stats.completed || 0;
+            paused = stats.paused || 0;
+        } else {
+            // 降级：前端本地计算
+            const pending = tasks.filter(t=>t.status!==2).length;
+            prog = tasks.filter(t=>t.status===1).length;
+            paused = tasks.filter(t=>t.status===3).length;
+            overdue = tasks.filter(t=>t.status!==2&&isOverdue(t.dueDate)).length;
+            done = tasks.filter(t=>t.status===2).length;
+            total = tasks.length;
+        }
+
+        const pending = total - done;
+        document.getElementById('sTotal').textContent = total;
         document.getElementById('sProgress').textContent = prog;
         document.getElementById('sOverdue').textContent = overdue;
         document.getElementById('sDone').textContent = done;
-        document.getElementById('greetSub').textContent = `共 ${tasks.length} 个任务，${pending} 个待处理，${overdue} 个已逾期`;
+        document.getElementById('greetSub').textContent = `共 ${total} 个任务，${pending} 个待处理，${overdue} 个已逾期，${paused} 个已暂停`;
         document.getElementById('taskBadge').textContent = pending;
         document.getElementById('memBadge').textContent = members.length;
 
@@ -506,18 +544,35 @@
             return `<div class="tm-item"><div class="tm-av" style="background:${m.color||COLORS[0]}">${ini(m.name)}</div><div class="tm-info"><div class="tm-name">${m.name}</div><div class="tm-tasks">${m._done}/${m._total} 任务完成</div><div class="prog-w"><div class="prog-bg"><div class="prog-fill" style="width:${p}%;background:var(--accent)"></div></div></div></div></div>`;
         }).join('') : '<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px;">暂无成员数据</div>';
 
-        // 即将到期
+        // 即将到期（优先从后端获取）
         const ue = document.getElementById('upcomingTasks');
-        const ut = tasks.filter(t=>t.status!==2).sort((a,b)=>new Date(a.dueDate||'2099')-new Date(b.dueDate||'2099')).slice(0,4);
+        const upcomingParams = curUser ? `?assigneeId=${curUser.id}&limit=4` : '?limit=4';
+        const upcomingData = await api('/api/tasks/upcoming' + upcomingParams);
+        const ut = Array.isArray(upcomingData) && upcomingData.length > 0 ? upcomingData
+            : tasks.filter(t=>t.status!==2).sort((a,b)=>new Date(a.dueDate||'2099')-new Date(b.dueDate||'2099')).slice(0,4);
         ue.innerHTML = ut.length ? ut.map(t => {
             const od = isOverdue(t.dueDate);
             return `<div class="tk-item"><div style="width:4px;height:36px;border-radius:2px;background:${od?'var(--rose)':'var(--amber)'};flex-shrink:0"></div><div class="tk-info"><div class="tk-name" style="font-size:13px">${t.title||'未命名'}</div><div class="tk-meta"><span style="${od?'color:var(--rose);font-weight:500':''}"><i class="fas fa-clock"></i> ${od?'已逾期':fmtDate(t.dueDate)}</span></div></div></div>`;
         }).join('') : '<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px;">暂无即将到期任务</div>';
 
-        // 周图表
-        const data = [3,5,4,6,done,2,1]; data[new Date().getDay()===0?6:new Date().getDay()-1] = done||3;
-        const mx = Math.max(...data,1);
+        // 周图表（从后端获取真实数据）
+        const trendParams = curUser ? `?assigneeId=${curUser.id}` : '';
+        const trendData = await api('/api/tasks/weekly-trend' + trendParams);
+        const data = [0,0,0,0,0,0,0];
         const days = ['周一','周二','周三','周四','周五','周六','周日'];
+        if (Array.isArray(trendData) && trendData.length > 0) {
+            trendData.forEach(item => {
+                // item.day 是 "2026-04-27" 格式，计算是本周第几天
+                const d = new Date(item.day);
+                let dayIdx = d.getDay() - 1; // 周一=0, 周日=6
+                if (dayIdx < 0) dayIdx = 6; // 周日
+                data[dayIdx] = item.count || 0;
+            });
+        } else {
+            // 降级：使用本地计算
+            data[new Date().getDay()===0?6:new Date().getDay()-1] = done||3;
+        }
+        const mx = Math.max(...data, 1);
         const today = new Date().getDay();
         document.getElementById('wkChart').innerHTML = data.map((v,i) => {
             const isT = today===(i+1)%7||(i===6&&today===0);
@@ -550,7 +605,7 @@
     // ====== 看板 ======
     function renderKB(cid) {
         const c = document.getElementById(cid); if(!c) return;
-        const cols = [{k:0,l:'待办',c:'var(--fg-s)'},{k:1,l:'进行中',c:'var(--blue)'},{k:3,l:'已逾期',c:'var(--amber)'},{k:2,l:'已完成',c:'var(--accent)'}];
+        const cols = [{k:0,l:'待办',c:'var(--fg-s)'},{k:1,l:'进行中',c:'var(--blue)'},{k:3,l:'已暂停',c:'var(--amber)'},{k:2,l:'已完成',c:'var(--accent)'}];
         c.innerHTML = cols.map(col => {
             const ct = tasks.filter(t => t.status === col.k);
             return `<div class="kb-col" data-status="${col.k}" ondragover="event.preventDefault();this.style.background='var(--accent-bg)'" ondragleave="this.style.background=''" ondrop="dropTK(event,${col.k});this.style.background=''"><div class="kb-col-hd"><div class="kb-col-title"><span class="kb-col-dot" style="background:${col.c}"></span>${col.l}</div><span class="kb-col-cnt">${ct.length}</span></div><div class="kb-cards">${ct.map(t => { const m = getMember(t.assigneeId); return `<div class="kb-card" draggable="true" data-id="${t.id}" ondragstart="event.dataTransfer.setData('text/plain','${t.id}')"><div class="kb-card-t">${t.title||'未命名'}</div><div class="kb-card-ft"><div class="kb-card-assignee"><div class="kb-card-av" style="background:${m.color||COLORS[0]}">${ini(m.name)}</div><span>${m.name}</span></div><span>${fmtDate(t.dueDate)}</span></div></div>`; }).join('')}</div><button class="kb-add" onclick="openModal(null,${col.k})"><i class="fas fa-plus"></i> 添加任务</button></div>`;
@@ -599,20 +654,38 @@
     }
 
     // ====== 模态框 ======
+    // 加载负责人下拉选项
+    function loadAssigneeOptions() {
+        const sel = document.getElementById('mAssignee');
+        const currentVal = sel.value;
+        sel.innerHTML = '<option value="">请选择负责人</option>';
+        members.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m.id;
+            opt.textContent = m.name + (m.department ? ' (' + m.department + ')' : '');
+            sel.appendChild(opt);
+        });
+        if (currentVal) sel.value = currentVal;
+    }
+
     function openModal(id, defStatus) {
         editId = id||null;
         document.getElementById('mTitle').textContent = id?'编辑任务':'新建任务';
+        loadAssigneeOptions(); // 每次打开都刷新负责人列表
         if(id) {
             const t = tasks.find(x=>x.id===id); if(!t) return;
             document.getElementById('mName').value = t.title||'';
             document.getElementById('mDesc').value = t.description||'';
             document.getElementById('mPri').value = t.priority||2;
             document.getElementById('mDue').value = t.dueDate ? t.dueDate.slice(0,16) : '';
+            document.getElementById('mAssignee').value = t.assigneeId || '';
         } else {
             document.getElementById('mName').value = '';
             document.getElementById('mDesc').value = '';
             document.getElementById('mPri').value = '2';
             document.getElementById('mDue').value = '';
+            // 新建任务默认选中当前用户为负责人
+            document.getElementById('mAssignee').value = curUser ? curUser.id : '';
         }
         document.getElementById('taskModal').classList.add('active');
         setTimeout(()=>document.getElementById('mName').focus(),200);
@@ -623,10 +696,12 @@
     async function saveTask() {
         const title = document.getElementById('mName').value.trim();
         if(!title){ toast('请输入任务标题','warning'); return; }
+        const assigneeIdVal = document.getElementById('mAssignee').value;
         const payload = {
             title: title,
             description: document.getElementById('mDesc').value.trim(),
             priority: parseInt(document.getElementById('mPri').value)||2,
+            assigneeId: assigneeIdVal ? parseInt(assigneeIdVal) : null,
             dueDate: document.getElementById('mDue').value ? document.getElementById('mDue').value.replace('T',' ')+':00' : null
         };
         let ok;
@@ -635,7 +710,8 @@
             ok = await api('/api/tasks', {method:'PUT', body:JSON.stringify(payload)});
         } else {
             payload.status = 0;
-            if(curUser) payload.assigneeId = curUser.id;
+            // 如果没选负责人，默认设为当前用户
+            if(!payload.assigneeId && curUser) payload.assigneeId = curUser.id;
             ok = await api('/api/tasks', {method:'POST', body:JSON.stringify(payload)});
         }
         if(ok !== null) { toast(editId?'任务已更新':'任务已创建','success'); closeM(); await loadTasks(); renderAll(); }
@@ -676,18 +752,15 @@
         toast('已退出登录','warning');
     });
 
-    // 搜索
+    // 搜索（改用后端keyword参数）
     document.getElementById('gSearch').addEventListener('input', function() {
         const q = this.value.trim().toLowerCase();
-        if(!q){ curFilter='all'; renderTable(); return; }
-        go('tasks');
-        const f = tasks.filter(t => (t.title||'').toLowerCase().includes(q) || (t.description||'').toLowerCase().includes(q) || getMember(t.assigneeId).name.toLowerCase().includes(q));
-        const tb = document.getElementById('ttBody');
-        if(!f.length){ tb.innerHTML='<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--muted)">未找到匹配的任务</td></tr>'; return; }
-        tb.innerHTML = f.map(t => {
-            const m = getMember(t.assigneeId);
-            return `<tr><td style="font-weight:500">${t.title||'未命名'}</td><td style="font-size:13px;color:var(--muted)">${t.description||'-'}</td><td><span class="tk-pri ${PR_CSS[t.priority]||'medium'}">${PR[t.priority]||'中'}</span></td><td style="font-size:13px">${fmtDate(t.dueDate)}</td><td><div class="tt-assignee"><div class="tt-av" style="background:${m.color||COLORS[0]}">${ini(m.name)}</div><span style="font-size:13px">${m.name}</span></div></td><td><span class="st-badge" style="${ST_CSS[t.status]||''}">${ST[t.status]||'未知'}</span></td><td><div class="act-cell"><button class="act-btn" onclick="editTask(${t.id})"><i class="fas fa-pen"></i></button><button class="act-btn del" onclick="delTask(${t.id})"><i class="fas fa-trash"></i></button></div></td></tr>`;
-        }).join('');
+        if(!q){ curFilter='all'; loadTasks().then(()=>renderTable()); return; }
+        // 使用后端搜索接口
+        loadTasks(q).then(() => {
+            go('tasks');
+            renderTable();
+        });
     });
 
     // ====== 启动 ======
