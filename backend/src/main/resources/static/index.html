@@ -397,10 +397,24 @@
         return t;
     }
 
-    // ====== API ======
+    // ====== API（自动携带JWT Token） ======
+    function getToken() { return localStorage.getItem('token'); }
     async function api(url, opts = {}) {
         try {
-            const r = await fetch(url, {headers:{'Content-Type':'application/json'}, ...opts});
+            // 自动在请求头中携带JWT token
+            const headers = {'Content-Type':'application/json', ...opts.headers};
+            const token = getToken();
+            if (token) headers['Authorization'] = 'Bearer ' + token;
+            const r = await fetch(url, {...opts, headers});
+            // 如果返回401，说明token过期，跳转到登录页
+            if (r.status === 401) {
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+                curUser = null;
+                document.getElementById('loginOverlay').classList.remove('hidden');
+                toast('登录已过期，请重新登录','warning');
+                return null;
+            }
             if (!r.ok) throw new Error(r.status);
             const t = await r.text();
             if (!t) return null;
@@ -424,19 +438,21 @@
         }
     }
 
-    // ====== 登录 ======
+    // ====== 登录（对接JWT Token） ======
     async function doLogin() {
         const u = document.getElementById('lgUser').value.trim();
         const p = document.getElementById('lgPass').value.trim();
         if (!u || !p) { document.getElementById('lgErr').textContent = '请输入用户名和密码'; return; }
         const res = await api('/api/employees/login', {method:'POST', body:JSON.stringify({username:u, password:p})});
-        if (res && typeof res === 'object' && res.id) {
-            curUser = res;
-            localStorage.setItem('user', JSON.stringify(res));
+        // 登录接口返回格式: {token: "xxx", user: {id, username, name, department}}
+        if (res && res.token && res.user) {
+            curUser = res.user;
+            localStorage.setItem('token', res.token);       // 保存JWT token
+            localStorage.setItem('user', JSON.stringify(res.user));
             document.getElementById('loginOverlay').classList.add('hidden');
-            document.getElementById('suAv').textContent = (res.name||'?').charAt(0);
-            document.getElementById('suName').textContent = res.name || res.username;
-            document.getElementById('suRole').textContent = res.department || '员工';
+            document.getElementById('suAv').textContent = (curUser.name||'?').charAt(0);
+            document.getElementById('suName').textContent = curUser.name || curUser.username;
+            document.getElementById('suRole').textContent = curUser.department || '员工';
             toast('登录成功','success');
             await loadAll();
         } else {
@@ -802,6 +818,7 @@
     });
     document.getElementById('notifBtn').addEventListener('click', () => toast('暂无新通知','success'));
     document.getElementById('logoutBtn').addEventListener('click', () => {
+        localStorage.removeItem('token');   // 清除JWT token
         localStorage.removeItem('user');
         curUser = null;
         document.getElementById('loginOverlay').classList.remove('hidden');
@@ -819,18 +836,22 @@
         });
     });
 
-    // ====== 启动 ======
+    // ====== 启动（检查JWT Token有效性） ======
     (async function() {
-        const saved = localStorage.getItem('user');
-        if(saved) {
+        const savedToken = localStorage.getItem('token');
+        const savedUser = localStorage.getItem('user');
+        if(savedToken && savedUser) {
             try {
-                curUser = JSON.parse(saved);
+                curUser = JSON.parse(savedUser);
                 document.getElementById('loginOverlay').classList.add('hidden');
                 document.getElementById('suAv').textContent = (curUser.name||'?').charAt(0);
                 document.getElementById('suName').textContent = curUser.name || curUser.username;
                 document.getElementById('suRole').textContent = curUser.department || '员工';
                 await loadAll();
-            } catch(e) { localStorage.removeItem('user'); }
+            } catch(e) {
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+            }
         }
     })();
     </script>
